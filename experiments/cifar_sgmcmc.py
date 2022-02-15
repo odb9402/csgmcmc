@@ -16,10 +16,8 @@ import argparse
 
 from models import *
 from torch.autograd import Variable
-from utils.dataloader import *
 import numpy as np
 import random
-
 
 parser = argparse.ArgumentParser(description='cSG-MCMC CIFAR10 Training')
 parser.add_argument('--dir', type=str, default=None, required=True, help='path to save checkpoints (default: None)')
@@ -51,7 +49,6 @@ print("###################################")
 
 # Data
 print('==> Preparing data..')
-trainloader, testloader
 transform_train = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
@@ -86,16 +83,11 @@ def noise_loss(lr,alpha):
         noise_loss += torch.sum(var * torch.normal(means, std = noise_std).cuda(device_id))
     return noise_loss
 
-def adjust_learning_rate(optimizer, epoch, batch_idx):
-    rcounter = epoch*num_batch+batch_idx
-    cos_inner = np.pi * (rcounter % (T // M))
-    cos_inner /= T // M
-    cos_out = np.cos(cos_inner) + 1
-    lr = 0.5*cos_out*lr_0
-
+def adjust_learning_rate(optimizer, epoch, args):
+    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    lr = args.lr * (0.1 ** (epoch // 30))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
-    return lr
 
 def train(epoch):
     print('\nEpoch: %d' % epoch)
@@ -110,16 +102,14 @@ def train(epoch):
         optimizer.zero_grad()
         lr = adjust_learning_rate(optimizer, epoch,batch_idx)
         outputs = net(inputs)
-        if (epoch%50)+1>45:
+        if (epoch%20)+1 > 15:
             loss_noise = noise_loss(lr,args.alpha)*(args.temperature/datasize)**.5
+            loss = criterion(outputs, targets)
+            loss += loss_noise
+        elif (epoch % 20)+1 < 3:
             loss = criterion(outputs, targets)
             if args.curricular and len(loss) > args.topk:
                 loss = torch.topk(loss, args.topk, dim=0).values.mean()
-            loss += loss_noise
-        elif (epoch % 50) + 1 < 3:
-            loss = criterion(outputs, targets)
-            #if args.curricular and len(loss) > args.topk:
-            #    loss = torch.topk(loss, args.topk, dim=0).values.mean()
         else:
             loss = criterion(outputs, targets).mean()
         loss.mean().backward()
@@ -161,9 +151,7 @@ def test(epoch):
 
 datasize = 50000
 num_batch = datasize/args.batch_size+1
-lr_0 = 0.5 # initial lr
-M = 4 # number of cycles
-T = args.epochs*num_batch # total number of iterations
+lr_0 = 0.1 # initial lr
 criterion = nn.CrossEntropyLoss(reduction='none')
 optimizer = optim.SGD(net.parameters(), lr=lr_0, momentum=1-args.alpha, weight_decay=5e-4)
 mt = 0
@@ -171,7 +159,7 @@ mt = 0
 for epoch in range(args.epochs):
     train(epoch)
     test(epoch)
-    if (epoch%50)+1>47: # save 3 models per cycle
+    if (epoch%20) == 0 and epoch != 0: # save 3 models per cycle
         print('save!')
         net.cpu()
         torch.save(net.state_dict(),args.dir + '/cifar_model_%i.pt'%(mt))
