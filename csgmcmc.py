@@ -24,10 +24,10 @@ import pdb
 
 parser = argparse.ArgumentParser(description='cSG-MCMC CIFAR10 Training')
 parser.add_argument('--dir', type=str, default=None, required=True, help='path to save checkpoints (default: None)')
-parser.add_argument('--data_path', type=str, default='../data_path', required=True, metavar='PATH',
+parser.add_argument('--data_path', type=str, default='data', metavar='PATH',
                     help='path to datasets location (default: None)')
-parser.add_argument('--epochs', type=int, default=200,
-                    help='number of epochs to train (default: 10)')
+parser.add_argument('--epochs', type=int, default=8,
+                    help='number of epochs to train (default: 8)')
 parser.add_argument('--batch-size', type=int, default=64, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--alpha', type=int, default=1,
@@ -35,7 +35,7 @@ parser.add_argument('--alpha', type=int, default=1,
 parser.add_argument('--device_id',type = int, help = 'device id to use')
 parser.add_argument('--seed', type=int, default=1,
                     help='random seed')
-parser.add_argument('--temperature', type=float, default=1./50000,
+parser.add_argument('--temperature', type=float, default=1./302436,
                     help='temperature (default: 1/dataset_size)')
 parser.add_argument('--topk', type=int, default=32)
 parser.add_argument('--curricular', action='store_true')
@@ -49,30 +49,13 @@ random.seed(args.seed)
 print("Arguments: ########################")
 print('\n'.join(f'{k}={v}' for k, v in vars(args).items()))
 print("###################################")
-
 # Data
 print('==> Preparing data..')
-transform_train = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
-
-transform_test = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-])
-
-trainset = torchvision.datasets.CIFAR10(root=args.data_path, train=True, download=True, transform=transform_train)
-trainloader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=0)
-
-testset = torchvision.datasets.CIFAR10(root=args.data_path, train=False, download=True, transform=transform_test)
-testloader = torch.utils.data.DataLoader(testset, batch_size=100, shuffle=False, num_workers=0)
+trainloader, testloader = get_wilds_dataloader("camelyon17", args) 
 
 # Model
 print('==> Building model..')
-net = ResNet18()
+net = ResNet18(num_classes=2)
 if use_cuda:
     net.cuda(device_id)
     cudnn.benchmark = True
@@ -103,20 +86,20 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
+    for batch_idx, (inputs, targets, metadata) in enumerate(trainloader):
         if use_cuda:
             inputs, targets = inputs.cuda(device_id), targets.cuda(device_id)
 
         optimizer.zero_grad()
         lr = adjust_learning_rate(optimizer, epoch,batch_idx)
         outputs = net(inputs)
-        if (epoch%50)+1>45:
+        if (epoch%2) + 1 > 1:
             loss_noise = noise_loss(lr,args.alpha)*(args.temperature/datasize)**.5
             loss = criterion(outputs, targets)
             if args.curricular and len(loss) > args.topk:
                 loss = torch.topk(loss, args.topk, dim=0).values.mean()
             loss += loss_noise
-        elif (epoch % 50) + 1 < 3:
+        elif (epoch % 2) + 1 <= 1:
             loss = criterion(outputs, targets)
             if args.curricular and len(loss) > args.topk:
                 loss = torch.topk(loss, args.topk, dim=0, largest=False).values.mean()
@@ -140,7 +123,7 @@ def test(epoch):
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
+        for batch_idx, (inputs, targets, metadata) in enumerate(testloader):
             if use_cuda:
                 inputs, targets = inputs.cuda(device_id), targets.cuda(device_id)
             outputs = net(inputs)
@@ -159,11 +142,12 @@ def test(epoch):
     test_loss/len(testloader), correct, total,
     100. * correct.item() / total))
 
-datasize = 50000
+datasize = 302436 
 num_batch = datasize/args.batch_size+1
-lr_0 = 0.5 # initial lr
+lr_0 = 0.2 # initial lr
 M = 4 # number of cycles
 T = args.epochs*num_batch # total number of iterations
+print(f"Num batch: [{num_batch}], cycles: [{M}], iterations: [{T}]")
 criterion = nn.CrossEntropyLoss(reduction='none')
 optimizer = optim.SGD(net.parameters(), lr=lr_0, momentum=1-args.alpha, weight_decay=5e-4)
 mt = 0
@@ -171,7 +155,7 @@ mt = 0
 for epoch in range(args.epochs):
     train(epoch)
     test(epoch)
-    if (epoch%50)+1>47: # save 3 models per cycle
+    if (epoch%2) + 1 == 0: # save 3 models per cycle
         print('save!')
         net.cpu()
         torch.save(net.state_dict(),args.dir + '/cifar_model_%i.pt'%(mt))

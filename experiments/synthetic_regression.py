@@ -65,8 +65,10 @@ for it in range(24000):
     m = model(X_train)
     loss = F.mse_loss(m, Y_train, reduction='none')
     
-    if args.curricular and (it % 2000) + 1 < 500:# and it % args.interval < args.interval//2:
-        loss = torch.topk(loss, 5, dim=0).values.mean()
+    if args.curricular and (it % 2000) + 1 < 1500:# and it % args.interval < args.interval//2:
+        loss = torch.topk(loss, 15, dim=0, largest=False).values.mean()
+    if args.curricular and (it % 2000) + 1 >= 1500:# and it % args.interval < args.interval//2:
+        loss = torch.topk(loss, 15, dim=0).values.mean()
     else:
         loss = loss.mean()
 

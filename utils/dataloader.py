@@ -1,11 +1,20 @@
 from wilds.common.data_loaders import get_eval_loader
 from wilds.common.data_loaders import get_train_loader
 from wilds import get_dataset
-from wilds.common.data_loaders import get_train_loader
+from wilds.common.data_loaders import get_eval_loader
 import torchvision.transforms as transforms
-
+import torch
 
 def get_wilds_dataloader(data_name, args):
+	"""
+
+	Args:
+		data_name ([type]): {"iwildcam"}
+		args ([type]): [description]
+
+	Returns:
+		[type]: [description]
+	"""
 	dataset = get_dataset(dataset=data_name, download=True)
 
 	# Get the training set
@@ -16,15 +25,16 @@ def get_wilds_dataloader(data_name, args):
 		),
 	)
 
-	train_data = dataset.get_subset(
+	test_data = dataset.get_subset(
 		"test",
 		transform=transforms.Compose(
 			[transforms.Resize((32, 32)), transforms.ToTensor()]
 		),
 	)
+	print(f"Training N: {len(train_data)}, test N: {len(test_data)}")
 	# Prepare the standard data loader
 	train_loader = get_train_loader("standard", train_data, batch_size=args.batch_size)
-	test_loader = get_test_loader("standard", train_data, batch_size=args.batch_size)
+	test_loader = get_eval_loader("standard", test_data, batch_size=args.batch_size)
 	return train_loader, test_loader
 
 
