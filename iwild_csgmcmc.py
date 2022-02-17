@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(description='cSG-MCMC CIFAR10 Training')
 parser.add_argument('--dir', type=str, default=None, required=True, help='path to save checkpoints (default: None)')
 parser.add_argument('--data_path', type=str, default='data', metavar='PATH',
                     help='path to datasets location (default: None)')
-parser.add_argument('--epochs', type=int, default=16,
+parser.add_argument('--epochs', type=int, default=100,
                     help='number of epochs to train (default: 8)')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
@@ -35,7 +35,7 @@ parser.add_argument('--alpha', type=int, default=1,
 parser.add_argument('--device_id',type = int, help = 'device id to use')
 parser.add_argument('--seed', type=int, default=1,
                     help='random seed')
-parser.add_argument('--temperature', type=float, default=1./302436,
+parser.add_argument('--temperature', type=float, default=1./129809,
                     help='temperature (default: 1/dataset_size)')
 parser.add_argument('--topk', type=int, default=64)
 parser.add_argument('--curricular', action='store_true')
@@ -51,11 +51,11 @@ print('\n'.join(f'{k}={v}' for k, v in vars(args).items()))
 print("###################################")
 # Data
 print('==> Preparing data..')
-trainloader, testloader = get_wilds_dataloader("camelyon17", args) 
+trainloader, testloader = get_wilds_dataloader("iwildcam", args) 
 
 # Model
 print('==> Building model..')
-net = ResNet18(num_classes=2)
+net = ResNet18(num_classes=182)
 if use_cuda:
     net.cuda(device_id)
     cudnn.benchmark = True
@@ -88,23 +88,22 @@ def train(epoch):
     total = 0
     
     for batch_idx, (inputs, targets, metadata) in enumerate(trainloader):
-        pdb.set_trace()
         if use_cuda:
             inputs, targets = inputs.cuda(device_id), targets.cuda(device_id)
 
         optimizer.zero_grad()
         lr = adjust_learning_rate(optimizer, epoch,batch_idx)
         outputs = net(inputs)
-        if (epoch % 4) + 1 > 3:
+        if (epoch%25)+1 > 20:
             loss_noise = noise_loss(lr,args.alpha)*(args.temperature/datasize)**.5
             loss = criterion(outputs, targets)
             if args.curricular and len(loss) > args.topk:
                 loss = torch.topk(loss, args.topk, dim=0).values.mean()
             loss += loss_noise
-        elif (epoch % 4) + 1 < 2:
-            loss = criterion(outputs, targets)
-            if args.curricular and len(loss) > args.topk:
-                loss = torch.topk(loss, args.topk, dim=0, largest=False).values.mean()
+        #elif (epoch % 50) + 1 < 3:
+        #    loss = criterion(outputs, targets)
+            #if args.curricular and len(loss) > args.topk:
+            #    loss = torch.topk(loss, args.topk, dim=0, largest=False).values.mean()
         else:
             loss = criterion(outputs, targets).mean()
         loss.mean().backward()
@@ -145,9 +144,9 @@ def test(epoch):
     test_loss/len(testloader), correct, total,
     100. * correct.item() / total))
 
-datasize = 302436 
+datasize = 129809
 num_batch = datasize/args.batch_size+1
-lr_0 = 0.2 # initial lr
+lr_0 = 0.5 # initial lr
 M = 4 # number of cycles
 T = args.epochs*num_batch # total number of iterations
 print(f"Num batch: [{num_batch}], cycles: [{M}], iterations: [{T}]")
@@ -158,7 +157,7 @@ mt = 0
 for epoch in range(args.epochs):
     train(epoch)
     test(epoch)
-    if (epoch%4) + 1 > 2: # save 2 models per cycle
+    if (epoch%25)+1>22: # save 3 models per cycle
         print('save!')
         net.cpu()
         torch.save(net.state_dict(),args.dir + '/cifar_model_%i.pt'%(mt))
